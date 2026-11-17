@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>門市巡檢評分系統</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans pb-16">
+
+  <!-- 頂部導覽列 -->
+  <header class="bg-blue-600 text-white shadow-md sticky top-0 z-10">
+    <div class="max-w-xl mx-auto px-4 py-3 flex justify-between items-center">
+      <h1 class="text-lg font-bold tracking-wide">📋 門市巡檢評分系統</h1>
+      <span id="syncStatus" class="text-xs bg-blue-800 px-2.5 py-1 rounded-full">未連線</span>
+    </div>
+    <!-- 分頁切換 -->
+    <nav class="max-w-xl mx-auto flex border-t border-blue-500 text-sm font-medium">
+      <button onclick="switchTab('inspect')" id="tab-inspect" class="flex-1 py-2.5 bg-blue-700 border-b-2 border-white">現場評分</button>
+      <button onclick="switchTab('history')" id="tab-history" class="flex-1 py-2.5 hover:bg-blue-700">歷史查閱</button>
+      <button onclick="switchTab('admin')" id="tab-admin" class="flex-1 py-2.5 hover:bg-blue-700">後台設定</button>
+    </nav>
+  </header>
+
+  <main class="max-w-xl mx-auto p-4">
+
+    <!-- 未設定網址提示卡 -->
+    <div id="noUrlBanner" class="hidden bg-amber-50 border-l-4 border-amber-500 text-amber-800 p-4 rounded-lg shadow mb-4 text-sm">
+      <p class="font-bold">⚠️ 尚未設定雲端連線網址</p>
+      <p class="mt-1">請先切換至「後台設定」分頁，貼上您的 Google Apps Script 網址並儲存。</p>
+    </div>
+
+    <!-- 1. 現場評分區塊 -->
+    <section id="view-inspect" class="bg-white rounded-xl shadow p-5 space-y-4">
+      <div>
+        <label class="block text-sm font-semibold mb-1">店名</label>
+        <select id="storeSelect" class="w-full border border-gray-300 rounded-lg p-2.5 bg-white focus:ring-2 focus:ring-blue-500"></select>
+      </div>
+
+      <div>
+        <label class="block text-sm font-semibold mb-1">前次顧店業務</label>
+        <select id="staffSelect" class="w-full border border-gray-300 rounded-lg p-2.5 bg-white focus:ring-2 focus:ring-blue-500"></select>
+      </div>
+
+      <div>
+        <label class="block text-sm font-semibold mb-1">巡檢日期</label>
+        <input type="date" id="dateInput" class="w-full border border-gray-300 rounded-lg p-2.5 bg-white">
+      </div>
+
+      <div>
+        <label class="block text-sm font-semibold mb-1">扣分項目</label>
+        <select id="itemSelect" class="w-full border border-gray-300 rounded-lg p-2.5 bg-white focus:ring-2 focus:ring-blue-500"></select>
+      </div>
+
+      <div>
+        <label class="block text-sm font-semibold mb-1">補充說明 (選填)</label>
+        <input type="text" id="noteInput" placeholder="例如：3號機台玻璃有手印" class="w-full border border-gray-300 rounded-lg p-2.5">
+      </div>
+
+      <div>
+        <label class="block text-sm font-semibold mb-1">現場照片上傳 (支援直接拍照)</label>
+        <input type="file" id="photoInput" accept="image/*" capture="environment" onchange="previewImage(event)" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+        <img id="imagePreview" class="hidden mt-3 max-h-48 rounded-lg border object-cover mx-auto">
+      </div>
+
+      <button onclick="submitInspection()" id="submitBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg shadow transition">
+        送出評分紀錄
+      </button>
+    </section>
+
+    <!-- 2. 歷史查閱區塊 -->
+    <section id="view-history" class="hidden space-y-4">
+      <div class="bg-white rounded-xl shadow p-4 space-y-3">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-gray-500 mb-1">篩選分店</label>
+            <select id="historyStoreSelect" class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white"></select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-gray-500 mb-1">選擇月份</label>
+            <input type="month" id="historyMonthInput" class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
+          </div>
+        </div>
+        <button onclick="loadHistory()" class="w-full bg-gray-800 hover:bg-gray-900 text-white text-sm font-semibold py-2.5 rounded-lg">
+          查詢扣分狀況
+        </button>
+      </div>
+
+      <!-- 統計摘要卡 -->
+      <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 flex justify-between items-center">
+        <div>
+          <p class="text-xs text-blue-600 font-semibold">查詢條件累計扣分</p>
+          <p id="totalDeducted" class="text-2xl font-bold text-blue-900">0 分</p>
+        </div>
+        <div class="text-right">
+          <p class="text-xs text-blue-600 font-semibold">異常紀錄筆數</p>
+          <p id="totalRecords" class="text-xl font-bold text-blue-900">0 筆</p>
+        </div>
+      </div>
+
+      <!-- 紀錄列表 -->
+      <div id="historyList" class="space-y-3"></div>
+    </section>
+
+    <!-- 3. 後台管理區塊 -->
+    <section id="view-admin" class="hidden space-y-4">
+      
+      <!-- 雲端 API 網址設定 -->
+      <div class="bg-white rounded-xl shadow p-5 space-y-3 border-t-4 border-blue-600">
+        <h2 class="font-bold text-base border-b pb-2">🔗 Google Apps Script 連線設定</h2>
+        <p class="text-xs text-gray-500">貼上部署後的網頁應用程式網址（儲存於此裝置瀏覽器，無需修改程式碼）：</p>
+        <input type="url" id="gasUrlInput" placeholder="https://script.google.com/macros/s/..." class="w-full border border-gray-300 rounded-lg p-2.5 text-sm">
+        <button onclick="saveGasUrl()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded-lg text-sm">
+          儲存網址並重新連線
+        </button>
+      </div>
+
+      <!-- 分店管理 -->
+      <div class="bg-white rounded-xl shadow p-5 space-y-3">
+        <h2 class="font-bold text-base border-b pb-2">🏪 新增分店</h2>
+        <div class="flex gap-2">
+          <input type="text" id="newStoreName" placeholder="輸入新店名 (例：永和店)" class="flex-1 border border-gray-300 rounded-lg p-2.5 text-sm">
+          <button onclick="addStore()" class="bg-green-600 hover:bg-green-700 text-white font-semibold px-4 rounded-lg text-sm">新增</button>
+        </div>
+        <div id="adminStoreList" class="flex flex-wrap gap-2 pt-1"></div>
+      </div>
+
+      <!-- 顧店業務管理 -->
+      <div class="bg-white rounded-xl shadow p-5 space-y-3">
+        <h2 class="font-bold text-base border-b pb-2">👤 新增顧店業務</h2>
+        <div class="flex gap-2">
+          <input type="text" id="newStaffName" placeholder="輸入業務姓名" class="flex-1 border border-gray-300 rounded-lg p-2.5 text-sm">
+          <button onclick="addStaff()" class="bg-green-600 hover:bg-green-700 text-white font-semibold px-4 rounded-lg text-sm">新增</button>
+        </div>
+        <div id="adminStaffList" class="flex flex-wrap gap-2 pt-1"></div>
+      </div>
+
+      <!-- 扣分項目新增與編輯/刪除 -->
+      <div class="bg-white rounded-xl shadow p-5 space-y-4">
+        <h2 class="font-bold text-base border-b pb-2">⚠️ 扣分項目管理 (新增 / 編輯 / 刪除)</h2>
+        
+        <!-- 新增表單 -->
+        <div class="bg-gray-50 p-3 rounded-lg space-y-2 border">
+          <p class="text-xs font-semibold text-gray-600">新增項目</p>
+          <input type="text" id="newItemName" placeholder="扣分項目名稱 (例：燈箱未亮)" class="w-full border border-gray-300 rounded-lg p-2 text-sm bg-white">
+          <div class="flex gap-2">
+            <input type="number" id="newItemPoints" placeholder="扣分數值 (例：5)" class="flex-1 border border-gray-300 rounded-lg p-2 text-sm bg-white">
+            <button onclick="addItem()" class="bg-green-600 hover:bg-green-700 text-white font-semibold px-5 rounded-lg text-sm">新增</button>
+          </div>
+        </div>
+
+        <!-- 現有扣分項目列表 (支援編輯與刪除) -->
+        <div class="space-y-2">
+          <p class="text-xs font-semibold text-gray-600">現有項目清單</p>
+          <div id="adminItemList" class="space-y-2"></div>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <script>
+    // 從瀏覽器 localStorage 讀取 GAS 網址
+    let GAS_URL = localStorage.getItem('inspection_gas_url') || '';
+    let compressedBase64 = '';
+    let selectedFileName = '';
+    let currentItems = [];
+
+    window.onload = () => {
+      const today = new Date().toISOString().split('T')[0];
+      document.getElementById('dateInput').value = today;
+      document.getElementById('historyMonthInput').value = today.slice(0, 7);
+      document.getElementById('gasUrlInput').value = GAS_URL;
+
+      if (!GAS_URL) {
+        document.getElementById('noUrlBanner').classList.remove('hidden');
+        setStatus('未設定網址');
+      } else {
+        fetchConfig();
+      }
+    };
+
+    // 儲存 GAS 網址
+    function saveGasUrl() {
+      const inputUrl = document.getElementById('gasUrlInput').value.trim();
+      if (!inputUrl.startsWith('https://script.google.com/')) {
+        return alert('請輸入正確的 Google Apps Script 網址（應以 https://script.google.com/ 開頭）');
+      }
+      localStorage.setItem('inspection_gas_url', inputUrl);
+      GAS_URL = inputUrl;
+      document.getElementById('noUrlBanner').classList.add('hidden');
+      alert('網址已儲存！正在連線讀取雲端資料...');
+      fetchConfig();
+    }
+
+    // 切換分頁
+    function switchTab(tabName) {
+      ['inspect', 'history', 'admin'].forEach(t => {
+        document.getElementById(`view-${t}`).classList.add('hidden');
+        document.getElementById(`tab-${t}`).classList.remove('bg-blue-700', 'border-b-2', 'border-white');
+      });
+      document.getElementById(`view-${tabName}`).classList.remove('hidden');
+      document.getElementById(`tab-${tabName}`).classList.add('bg-blue-700', 'border-b-2', 'border-white');
+      if (tabName === 'history' && GAS_URL) loadHistory();
+    }
+
+    // 載入分店、業務與扣分項目選單
+    async function fetchConfig() {
+      if (!GAS_URL) return;
+      setStatus('讀取選單中...');
+      try {
+        const res = await fetch(`${GAS_URL}?action=getConfig`);
+        const data = await res.json();
+        if (data.status === 'success') {
+          // 1. 渲染分店
+          const storeSelect = document.getElementById('storeSelect');
+          const historyStoreSelect = document.getElementById('historyStoreSelect');
+          const adminStoreList = document.getElementById('adminStoreList');
+          storeSelect.innerHTML = '';
+          historyStoreSelect.innerHTML = '<option value="ALL">全部門市</option>';
+          adminStoreList.innerHTML = '';
+
+          (data.stores || []).forEach(s => {
+            storeSelect.innerHTML += `<option value="${s}">${s}</option>`;
+            historyStoreSelect.innerHTML += `<option value="${s}">${s}</option>`;
+            adminStoreList.innerHTML += `<span class="text-xs bg-gray-100 border px-2.5 py-1 rounded-full">${s}</span>`;
+          });
+
+          // 2. 渲染前次顧店業務
+          const staffSelect = document.getElementById('staffSelect');
+          const adminStaffList = document.getElementById('adminStaffList');
+          staffSelect.innerHTML = '';
+          adminStaffList.innerHTML = '';
+
+          (data.staff || []).forEach(st => {
+            staffSelect.innerHTML += `<option value="${st}">${st}</option>`;
+            adminStaffList.innerHTML += `<span class="text-xs bg-blue-50 text-blue-800 border border-blue-200 px-2.5 py-1 rounded-full">${st}</span>`;
+          });
+
+          // 3. 渲染扣分項目
+          currentItems = data.items || [];
+          const itemSelect = document.getElementById('itemSelect');
+          const adminItemList = document.getElementById('adminItemList');
+          itemSelect.innerHTML = '';
+          adminItemList.innerHTML = '';
+
+          currentItems.forEach((item, idx) => {
+            itemSelect.innerHTML += `<option value="${item.name}" data-points="${item.points}">${item.name} (-${item.points}分)</option>`;
+            adminItemList.innerHTML += `
+              <div class="flex items-center justify-between bg-gray-50 border rounded-lg p-2.5 text-sm">
+                <div>
+                  <span class="font-semibold text-gray-800">${item.name}</span>
+                  <span class="ml-2 text-xs font-bold text-red-600">-${item.points} 分</span>
+                </div>
+                <div class="flex gap-1.5">
+                  <button onclick="editItem(${idx})" class="bg-amber-500 hover:bg-amber-600 text-white text-xs px-2.5 py-1 rounded">編輯</button>
+                  <button onclick="deleteItem(${idx})" class="bg-red-500 hover:bg-red-600 text-white text-xs px-2.5 py-1 rounded">刪除</button>
+                </div>
+              </div>
+            `;
+          });
+
+          setStatus('雲端已連線');
+        }
+      } catch (e) {
+        setStatus('連線失敗');
+        alert('無法讀取雲端設定，請確認後台的 GAS 網址是否正確，且權限設為「所有人」。');
+      }
+    }
+
+    // 圖片預覽與前端自動壓縮
+    function previewImage(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      selectedFileName = file.name;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const img = new Image();
+        img.onload = function() {
+          const canvas = document.createElement('canvas');
+          const maxWidth = 1024;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          compressedBase64 = canvas.toDataURL('image/jpeg', 0.75);
+          const preview = document.getElementById('imagePreview');
+          preview.src = compressedBase64;
+          preview.classList.remove('hidden');
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // 送出現場評分
+    async function submitInspection() {
+      if (!GAS_URL) return alert('請先至「後台設定」填入 GAS 網址！');
+      const btn = document.getElementById('submitBtn');
+      const itemSelect = document.getElementById('itemSelect');
+      const selectedOption = itemSelect.options[itemSelect.selectedIndex];
+
+      const payload = {
+        action: 'submitScore',
+        store: document.getElementById('storeSelect').value,
+        staff: document.getElementById('staffSelect').value,
+        date: document.getElementById('dateInput').value,
+        item: selectedOption ? selectedOption.value : '',
+        points: selectedOption ? Number(selectedOption.getAttribute('data-points')) : 0,
+        note: document.getElementById('noteInput').value,
+        photoBase64: compressedBase64,
+        photoName: selectedFileName
+      };
+
+      if (!payload.store || !payload.date || !payload.item) {
+        return alert('請完整選擇店名、日期與扣分項目！');
+      }
+
+      btn.disabled = true;
+      btn.innerText = '上傳雲端中，請稍候...';
+
+      try {
+        const res = await fetch(GAS_URL, {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+        const result = await res.json();
+        alert(result.message);
+        document.getElementById('noteInput').value = '';
+        document.getElementById('photoInput').value = '';
+        document.getElementById('imagePreview').classList.add('hidden');
+        compressedBase64 = '';
+      } catch (e) {
+        alert('上傳發生錯誤：' + e);
+      } finally {
+        btn.disabled = false;
+        btn.innerText = '送出評分紀錄';
+      }
+    }
+
+    // 查詢歷史紀錄
+    async function loadHistory() {
+      if (!GAS_URL) return;
+      const store = document.getElementById('historyStoreSelect').value;
+      const month = document.getElementById('historyMonthInput').value;
+      const listDiv = document.getElementById('historyList');
+      listDiv.innerHTML = '<p class="text-center text-gray-500 py-6">資料載入中...</p>';
+
+      try {
+        const res = await fetch(`${GAS_URL}?action=getHistory&store=${encodeURIComponent(store)}&month=${encodeURIComponent(month)}`);
+        const data = await res.json();
+        
+        let totalPts = 0;
+        listDiv.innerHTML = '';
+
+        if (data.records.length === 0) {
+          listDiv.innerHTML = '<p class="text-center text-gray-400 py-6">此條件下無扣分紀錄</p>';
+        } else {
+          data.records.forEach(r => {
+            totalPts += r.points;
+            const photoBtn = r.photoUrl 
+              ? `<a href="${r.photoUrl}" target="_blank" class="inline-block mt-2 text-xs bg-blue-100 text-blue-700 px-2.5 py-1 rounded font-semibold">📷 查看現場照片</a>` 
+              : '';
+            const staffTag = r.staff 
+              ? `<span class="text-xs bg-purple-100 text-purple-800 px-2 py-0.5 rounded ml-1">前次業務：${r.staff}</span>` 
+              : '';
+            listDiv.innerHTML += `
+              <div class="bg-white rounded-xl shadow p-4 border-l-4 border-red-500">
+                <div class="flex justify-between items-start">
+                  <div>
+                    <span class="text-xs font-bold bg-gray-200 text-gray-700 px-2 py-0.5 rounded">${r.store}</span>
+                    ${staffTag}
+                    <div class="text-xs text-gray-500 mt-1">${r.date}</div>
+                    <h3 class="font-bold text-gray-900 mt-0.5">${r.item}</h3>
+                  </div>
+                  <span class="text-red-600 font-bold text-lg">-${r.points} 分</span>
+                </div>
+                ${r.note ? `<p class="text-sm text-gray-600 mt-1">備註：${r.note}</p>` : ''}
+                ${photoBtn}
+              </div>
+            `;
+          });
+        }
+        document.getElementById('totalDeducted').innerText = `${totalPts} 分`;
+        document.getElementById('totalRecords').innerText = `${data.records.length} 筆`;
+      } catch (e) {
+        listDiv.innerHTML = '<p class="text-center text-red-500 py-6">查詢失敗，請稍後再試</p>';
+      }
+    }
+
+    // 後台新增分店
+    async function addStore() {
+      const name = document.getElementById('newStoreName').value.trim();
+      if (!name) return alert('請輸入分店名稱');
+      await postAdminAction({ action: 'addStore', storeName: name });
+      document.getElementById('newStoreName').value = '';
+    }
+
+    // 後台新增顧店業務
+    async function addStaff() {
+      const name = document.getElementById('newStaffName').value.trim();
+      if (!name) return alert('請輸入業務姓名');
+      await postAdminAction({ action: 'addStaff', staffName: name });
+      document.getElementById('newStaffName').value = '';
+    }
+
+    // 後台新增扣分項目
+    async function addItem() {
+      const name = document.getElementById('newItemName').value.trim();
+      const points = document.getElementById('newItemPoints').value;
+      if (!name || !points) return alert('請輸入項目名稱與扣分數值');
+      await postAdminAction({ action: 'addItem', itemName: name, points: points });
+      document.getElementById('newItemName').value = '';
+      document.getElementById('newItemPoints').value = '';
+    }
+
+    // 編輯扣分項目
+    async function editItem(index) {
+      const target = currentItems[index];
+      const newName = prompt('請修改扣分項目名稱：', target.name);
+      if (newName === null || !newName.trim()) return;
+      const newPoints = prompt('請修改扣分數值：', target.points);
+      if (newPoints === null || isNaN(Number(newPoints))) return alert('請輸入有效的數字');
+
+      await postAdminAction({
+        action: 'editItem',
+        rowIndex: target.rowIndex,
+        itemName: newName.trim(),
+        points: Number(newPoints)
+      });
+    }
+
+    // 刪除扣分項目
+    async function deleteItem(index) {
+      const target = currentItems[index];
+      if (!confirm(`確定要刪除「${target.name} (-${target.points}分)」嗎？`)) return;
+
+      await postAdminAction({
+        action: 'deleteItem',
+        rowIndex: target.rowIndex
+      });
+    }
+
+    async function postAdminAction(payload) {
+      if (!GAS_URL) return alert('請先在上方設定並儲存 GAS 網址！');
+      setStatus('更新資料中...');
+      try {
+        const res = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify(payload) });
+        const result = await res.json();
+        alert(result.message);
+        fetchConfig();
+      } catch (e) {
+        alert('操作失敗：' + e);
+        setStatus('操作失敗');
+      }
+    }
+
+    function setStatus(text) {
+      document.getElementById('syncStatus').innerText = text;
+    }
+  </script>
+</body>
+</html>
